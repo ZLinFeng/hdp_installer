@@ -1,11 +1,14 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs},
+    io::{Read, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream, ToSocketAddrs},
+    path::Path,
     str::FromStr,
 };
 
 use ping;
 
 use emojis;
+use ssh2::Session;
 
 /**
  * 检查地址的连通性
@@ -108,6 +111,38 @@ fn resolve_hostname(hostname: &str) -> Option<IpAddr> {
     }
 
     None
+}
+
+pub fn transfer_file_without_password(local_path: &Path, remote_path: &Path, addr: &String) {
+    let tcp = TcpStream::connect(format!("{}:{}", addr, 22)).unwrap();
+    let mut session = Session::new().unwrap();
+
+    session.set_tcp_stream(tcp);
+    session.handshake().unwrap();
+
+    let mut remote_file = session
+        .scp_send(
+            Path::new(remote_path),
+            0o644,
+            local_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .as_bytes()
+                .len() as u64,
+            None,
+        )
+        .unwrap();
+    let mut local_file = std::fs::File::open(local_path).unwrap();
+    let mut buffer = [0; 1024];
+    while let Ok(bytes_read) = local_file.read(&mut buffer) {
+        if bytes_read == 0 {
+            break;
+        }
+        remote_file.write_all(&buffer[..bytes_read]).unwrap();
+    }
+    session.disconnect(None, "Send Finished.", None).unwrap();
 }
 
 #[test]
